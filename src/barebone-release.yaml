@@ -1,0 +1,61 @@
+parameters:
+- name: environment
+  displayName: Select the environment to be deployed at
+  type: string
+  default: sfs-dev-resources
+  values:
+  - sfs-prod-resources
+  - sfs-test-resources
+  - sfs-dev-resources
+
+resources:
+  repositories:
+   - repository: argo
+     type: git
+     name: microservices-conf
+     ref: main
+trigger:
+- none
+
+variables:
+  - group: barebone-service
+  - group: ${{ parameters.environment }}
+
+pool:
+  name: DTS Build Agents Pool
+
+stages:
+- stage: git
+  displayName: "Git Checkout"
+  jobs:
+  - job: git
+    displayName: "Git checkout"
+    steps:
+      - checkout: conf
+      - checkout: self
+
+- stage: argocd
+  displayName: "ArgoCD preparing release"
+  jobs:
+  - job: argocd
+    displayName: "Update argoCD repository"
+    steps:
+    - checkout: argo
+      persistCredentials: true
+    - script: |
+        ls -la
+
+    - script: |
+        ls -la $(Build.SourcesDirectory)
+        ls -la /tmp
+        export tmp=`cat /tmp/$(artifactConfName)/conf/service.yaml | grep -i env | awk -F": " '{ print $2}'`
+        export path=`echo $tmp | xargs`
+        for f in /tmp/$(artifactConfName)/conf/*.yaml; do mv -- "$f" "${f%.yaml}-$(applicationName).yaml"; done
+        cp /tmp/$(artifactConfName)/conf/*.yaml argocd/$path
+        git config --global user.email "portal@azure.com"
+        git config --global user.name "Azure Devops Pipelines"
+        git add *
+        git status
+        git commit -m "Update with build $(Build.BuildNumber)"
+        git push -f origin HEAD:main
+      displayName: "Updating argoCD fingerprint"
