@@ -1,0 +1,75 @@
+name: Maven build over docker image
+on: workflow_dispatch
+
+jobs:
+  build_stage:
+    runs-on: ubuntu-latest ## Github pool agent's name
+    steps:    
+    - uses: actions/checkout@v3
+    
+    - name: Set up JDK 11           ### Required version for this project to be built
+      uses: actions/setup-java@v3
+      with:
+        java-version: '11'
+        distribution: 'temurin'
+        cache: maven
+        
+    - name: Build with Maven        ### Maven build
+      run: mvn -B package --file pom.xml
+      
+    - name: Maven tests
+      run: mvn test
+      
+    - name: Build maven package
+      run: mvn -B package 
+      
+    - name: Display of the built artifacts
+      run: ls -la
+
+    - name: Temporarily save jar artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: jar-artifact
+        path: ${{ github.workspace }}/target/*.jar
+        retention-days: 1
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build_stage
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - uses: actions/download-artifact@v3
+      with:
+          name: jar-artifact
+          path: target/
+          
+    - name: Listing artifacts
+      run: ls -la target/
+      
+    - name: Docker build
+      run: |
+        docker build . -t sample-maven:latest
+    - name: Login to DockerHub
+      uses: docker/login-action@v2.0.0
+      with:
+        username: ${{ secrets.DOCKER_USER }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+
+    - name: Docker tag
+      run: |
+        docker tag sample-maven:latest ${{ secrets.DOCKER_USER }}/sample-maven:latest        
+       
+    - name: Push docker image
+      run: |
+        docker push ${{ secrets.DOCKER_USER }}/sample-maven:latest
+        
+  run:
+    runs-on: ubuntu-latest
+    needs: [build_stage, deploy]
+
+    steps:
+    - name: Run container
+      run: |
+        docker run ${{ secrets.DOCKER_USER }}/sample-maven:latest   
